@@ -136,7 +136,7 @@ Add this to your project's README:
 
 1. **Get yanked** (one time setup):
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/codinganovel/yanked/refs/heads/main/yanked -o ~/.local/bin/yanked && chmod +x ~/.local/bin/yanked && echo "✅ yanked installed! Run: yanked"
+   curl -fsSL https://raw.githubusercontent.com/codinganovel/yanked/refs/heads/main/yanked.py -o ~/.local/bin/yanked && chmod +x ~/.local/bin/yanked && echo "✅ yanked installed! Run: yanked"
    ```
 
 2. **Install this project:**
