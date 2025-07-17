@@ -4,6 +4,8 @@ yanked - Universal GitHub Package Manager
 Install any executable script from GitHub with just a URL and a name.
 """
 
+VERSION = "0.3"
+
 import argparse
 import json
 import os
@@ -328,6 +330,183 @@ class YankedManager:
         self.save_records(records)
         
         print_success(f"'{app_name}' uninstalled successfully!")
+    
+    def upgrade_app(self, app_name):
+        """Upgrade a specific app to the latest version"""
+        records = self.load_records()
+        
+        if app_name not in records:
+            print_error(f"Package '{app_name}' is not installed")
+            return False
+        
+        info = records[app_name]
+        print_status(f"Checking for updates to '{app_name}'...")
+        
+        try:
+            # Download latest version
+            latest_content = self.download_file(info['file_url'])
+            latest_hash = self.calculate_hash(latest_content)
+            
+            # Compare with current version
+            if latest_hash == info['file_hash']:
+                print_success(f"'{app_name}' is already up to date")
+                return False
+            
+            # Update is available
+            print_status(f"Update available for '{app_name}'")
+            print(f"Current hash: {info['file_hash'][:16]}...")
+            print(f"Latest hash:  {latest_hash[:16]}...")
+            
+            # Install the updated version
+            app_path = Path(info['file_path'])
+            
+            # Write updated file
+            with open(app_path, 'wb') as f:
+                f.write(latest_content)
+            
+            # Make executable
+            app_path.chmod(app_path.stat().st_mode | stat.S_IEXEC)
+            
+            # Update records (preserve install_date, update hash)
+            records[app_name]['file_hash'] = latest_hash
+            records[app_name]['last_update'] = datetime.now().isoformat()
+            self.save_records(records)
+            
+            print_success(f"'{app_name}' updated successfully!")
+            return True
+            
+        except Exception as e:
+            print_error(f"Failed to upgrade '{app_name}': {e}")
+            return False
+    
+    def upgrade_all(self):
+        """Upgrade all installed packages"""
+        records = self.load_records()
+        
+        if not records:
+            print("No packages installed to upgrade.")
+            return
+        
+        print()
+        print(f"{Colors.BOLD}🔄 Upgrading All Packages{Colors.END}")
+        print("=" * 25)
+        
+        updated_count = 0
+        failed_count = 0
+        
+        for app_name in sorted(records.keys()):
+            print()
+            result = self.upgrade_app(app_name)
+            if result is True:
+                updated_count += 1
+            elif result is False and app_name in self.load_records():
+                # App exists but no update (not an error)
+                pass
+            else:
+                failed_count += 1
+        
+        print()
+        print(f"{Colors.BOLD}Upgrade Summary:{Colors.END}")
+        print(f"Updated: {updated_count}")
+        print(f"Up to date: {len(records) - updated_count - failed_count}")
+        if failed_count > 0:
+            print(f"Failed: {failed_count}")
+        
+        if updated_count > 0:
+            print_success("Upgrade completed!")
+        else:
+            print_success("All packages are up to date!")
+    
+    def check_for_updates(self):
+        """Check if a newer version of yanked is available"""
+        try:
+            print_status("Checking for yanked updates...")
+            
+            # Get latest version from GitHub
+            version_url = "https://raw.githubusercontent.com/codinganovel/pow/refs/heads/main/version.md"
+            req = Request(version_url, headers={
+                'User-Agent': 'yanked/1.0 (GitHub Package Manager)'
+            })
+            
+            with urlopen(req, timeout=10) as response:
+                if response.status != 200:
+                    raise Exception(f"HTTP {response.status}: {response.reason}")
+                latest_version = response.read().decode('utf-8').strip()
+            
+            # Compare versions
+            current_version = VERSION
+            
+            print(f"Current version: {current_version}")
+            print(f"Latest version: {latest_version}")
+            
+            if current_version != latest_version:
+                return latest_version
+            else:
+                print_success("yanked is up to date!")
+                return None
+                
+        except Exception as e:
+            print_error(f"Failed to check for updates: {e}")
+            return None
+    
+    def update_self(self):
+        """Update yanked to the latest version"""
+        # Check if update is available
+        latest_version = self.check_for_updates()
+        if not latest_version:
+            return
+        
+        print_status(f"Update available! Upgrading to version {latest_version}...")
+        
+        try:
+            # Get current script path
+            script_path = os.path.abspath(sys.argv[0])
+            print(f"Updating: {script_path}")
+            
+            # Download latest yanked.py
+            yanked_url = "https://raw.githubusercontent.com/codinganovel/yanked/refs/heads/main/yanked.py"
+            latest_content = self.download_file(yanked_url)
+            
+            # Create backup of current version
+            backup_path = f"{script_path}.backup"
+            with open(script_path, 'rb') as f:
+                backup_content = f.read()
+            
+            with open(backup_path, 'wb') as f:
+                f.write(backup_content)
+            
+            print_status("Created backup at: " + backup_path)
+            
+            # Replace current script
+            with open(script_path, 'wb') as f:
+                f.write(latest_content)
+            
+            # Make executable
+            os.chmod(script_path, os.stat(script_path).st_mode | stat.S_IEXEC)
+            
+            print_success(f"Successfully updated yanked to version {latest_version}!")
+            print(f"Backup saved at: {backup_path}")
+            print("Run 'yanked --version' to verify the update.")
+            
+        except Exception as e:
+            print_error(f"Update failed: {e}")
+            
+            # Try to restore from backup if it exists
+            if 'backup_path' in locals() and os.path.exists(backup_path):
+                print_status("Attempting to restore from backup...")
+                try:
+                    with open(backup_path, 'rb') as f:
+                        backup_content = f.read()
+                    with open(script_path, 'wb') as f:
+                        f.write(backup_content)
+                    os.chmod(script_path, os.stat(script_path).st_mode | stat.S_IEXEC)
+                    print_success("Restored from backup successfully")
+                except Exception as restore_error:
+                    print_error(f"Failed to restore from backup: {restore_error}")
+            
+            return False
+        
+        return True
 
 
 def setup_exit_handlers():
@@ -355,8 +534,13 @@ Examples:
   yanked list                List installed packages
   yanked uninstall my-tool   Remove installed package
   yanked info my-tool        Show package details
+  yanked upgrade my-tool     Upgrade specific package
+  yanked upgrade             Upgrade all packages
+  yanked update              Update yanked itself
         """
     )
+    
+    parser.add_argument('--version', action='version', version=f'yanked {VERSION}')
     
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
@@ -374,6 +558,13 @@ Examples:
     info_parser = subparsers.add_parser('info', help='Show package information')
     info_parser.add_argument('package', help='Package name to show info for')
     
+    # Upgrade command
+    upgrade_parser = subparsers.add_parser('upgrade', help='Upgrade packages to latest version')
+    upgrade_parser.add_argument('package', nargs='?', help='Package name to upgrade (omit to upgrade all)')
+    
+    # Update command (self-update)
+    subparsers.add_parser('update', help='Update yanked itself to latest version')
+    
     args = parser.parse_args()
     
     manager = YankedManager()
@@ -387,6 +578,13 @@ Examples:
         manager.uninstall_app(args.package)
     elif args.command == 'info':
         manager.show_info(args.package)
+    elif args.command == 'upgrade':
+        if args.package:
+            manager.upgrade_app(args.package)
+        else:
+            manager.upgrade_all()
+    elif args.command == 'update':
+        manager.update_self()
 
 
 if __name__ == "__main__":
