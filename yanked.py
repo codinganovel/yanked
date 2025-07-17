@@ -423,7 +423,7 @@ class YankedManager:
             print_status("Checking for yanked updates...")
             
             # Get latest version from GitHub
-            version_url = "https://raw.githubusercontent.com/codinganovel/pow/refs/heads/main/version.md"
+            version_url = "https://raw.githubusercontent.com/codinganovel/yanked/refs/heads/main/version.md"
             req = Request(version_url, headers={
                 'User-Agent': 'yanked/1.0 (GitHub Package Manager)'
             })
