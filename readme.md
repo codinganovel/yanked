@@ -12,6 +12,8 @@ A universal package manager for GitHub-hosted scripts and tools. Install, track,
 - ✅ Makes it executable and ready to use
 - 🎨 **Rich colored output** with clear status messages
 - 🔄 Works on Linux, macOS, and WSL
+- 📈 **Package upgrades** - Update installed packages to latest versions
+- 🔄 **Self-updating** - Keep yanked itself up to date
 
 ## Quick Start
 
@@ -30,6 +32,10 @@ yanked                     # Interactive installation
 yanked list                # Show installed packages  
 yanked uninstall my-tool   # Remove a package
 yanked info my-tool        # Show package details
+yanked upgrade my-tool     # Update a package to latest version
+yanked upgrade             # Update all packages
+yanked update              # Update yanked itself
+yanked --version           # Show yanked version
 ```
 
 ## Commands
@@ -50,6 +56,14 @@ When prompted:
 yanked list                # List all installed packages
 yanked uninstall my-tool   # Remove package and cleanup records
 yanked info my-tool        # Show detailed package information
+yanked upgrade my-tool     # Update specific package to latest version
+yanked upgrade             # Update all installed packages
+```
+
+### Keep yanked up to date
+```bash
+yanked update              # Update yanked itself to latest version
+yanked --version           # Check current yanked version
 ```
 
 ## Examples
@@ -79,6 +93,15 @@ yanked info my-script
 
 # Remove a package
 yanked uninstall my-script
+
+# Update a package to latest version
+yanked upgrade my-script
+
+# Update all packages
+yanked upgrade
+
+# Update yanked itself
+yanked update
 ```
 
 ## Supported URL Types
