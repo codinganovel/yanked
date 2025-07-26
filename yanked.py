@@ -4,14 +4,15 @@ yanked - Universal GitHub Package Manager
 Install any executable script from GitHub with just a URL and a name.
 """
 
-VERSION = "0.3"
+VERSION = "2.0.1"
 
 import argparse
 import json
 import os
 import re
 import stat
-import subprocess
+# import subprocess  # No longer needed - using exec instead
+import tempfile
 import sys
 import hashlib
 from datetime import datetime
@@ -58,7 +59,12 @@ class YankedManager:
     def __init__(self):
         self.install_dir = Path.home() / ".local" / "bin"
         self.records_file = self.install_dir / ".yankpacks"  # No extension needed!
+        self.temp_dir = Path("/tmp") / "yanked"
         self.install_dir.mkdir(parents=True, exist_ok=True)
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Clean up any leftover temp files from previous runs
+        self.cleanup_temp_files()
         
     def load_records(self):
         """Load the installation records from JSON file"""
@@ -78,6 +84,16 @@ class YankedManager:
                 json.dump(records, f, indent=2, sort_keys=True)
         except IOError as e:
             print_error(f"Error saving records: {e}")
+    
+    def cleanup_temp_files(self):
+        """Clean up temporary files and directories from previous yanked runs"""
+        try:
+            if self.temp_dir.exists():
+                import shutil
+                shutil.rmtree(self.temp_dir)
+                self.temp_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass  # Ignore if we can't access temp directory
     
     def check_exit(self, user_input):
         """Check if user wants to exit"""
@@ -134,7 +150,7 @@ class YankedManager:
             
             # Create request with user agent to avoid blocks
             req = Request(url, headers={
-                'User-Agent': 'yanked/1.0 (GitHub Package Manager)'
+                'User-Agent': 'yanked/2.0 (GitHub Package Manager)'
             })
             
             with urlopen(req, timeout=30) as response:
@@ -151,31 +167,72 @@ class YankedManager:
         """Calculate SHA256 hash of content"""
         return hashlib.sha256(content).hexdigest()
     
-    def install_app(self, app_name, source_url, file_url, content):
+    def install_app(self, app_name, source_url, file_url, content, method):
         """Install app and update records"""
-        app_path = self.install_dir / app_name
-        
-        # Write file
-        with open(app_path, 'wb') as f:
-            f.write(content)
-        
-        # Make executable
-        app_path.chmod(app_path.stat().st_mode | stat.S_IEXEC)
-        
-        # Update records
-        records = self.load_records()
-        records[app_name] = {
-            "source_url": source_url,
-            "file_url": file_url,
-            "install_date": datetime.now().isoformat(),
-            "file_path": str(app_path),
-            "file_hash": self.calculate_hash(content)
-        }
-        self.save_records(records)
-        
-        print_success(f"{app_name} installed successfully!")
-        print(f"Location: {app_path}")
-        print(f"Run with: {Colors.CYAN}{app_name}{Colors.END}")
+        if method == "scr":
+            # Script method - install to ~/.local/bin
+            app_path = self.install_dir / app_name
+            
+            # Write file
+            with open(app_path, 'wb') as f:
+                f.write(content)
+            
+            # Make executable
+            app_path.chmod(app_path.stat().st_mode | stat.S_IEXEC)
+            
+            # Update records
+            records = self.load_records()
+            records[app_name] = {
+                "method": method,
+                "source_url": source_url,
+                "file_url": file_url,
+                "install_date": datetime.now().isoformat(),
+                "file_path": str(app_path),
+                "file_hash": self.calculate_hash(content)
+            }
+            self.save_records(records)
+            
+            print_success(f"{app_name} installed successfully!")
+            print(f"Location: {app_path}")
+            print(f"Run with: {Colors.CYAN}{app_name}{Colors.END}")
+            
+        elif method == "inst":
+            # Install script method - replace yanked process with installer
+            import tempfile
+            
+            # Create temporary file for installer in our temp directory
+            with tempfile.NamedTemporaryFile(mode='wb', delete=False, dir=self.temp_dir, 
+                                           prefix=f"installer_{app_name}_") as temp_file:
+                temp_file.write(content)
+                temp_path = temp_file.name
+            
+            # Make executable
+            os.chmod(temp_path, os.stat(temp_path).st_mode | stat.S_IEXEC)
+            
+            # Update records BEFORE exec (since we won't return)
+            records = self.load_records()
+            records[app_name] = {
+                "method": method,
+                "source_url": source_url,
+                "file_url": file_url,
+                "install_date": datetime.now().isoformat(),
+                "file_hash": self.calculate_hash(content)
+            }
+            self.save_records(records)
+            
+            print_status(f"Running custom installer for {app_name}...")
+            print_status("yanked is transferring control to the installer script")
+            
+            # Replace current process with installer
+            try:
+                os.execv(temp_path, [temp_path])
+            except Exception as e:
+                # If exec fails, clean up and report error
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                raise Exception(f"Failed to execute installer: {e}")
     
     def interactive_install(self):
         """Interactive installation process"""
@@ -212,6 +269,13 @@ class YankedManager:
                 print_error(str(e))
                 return
         
+        # Get method
+        while True:
+            method = self.read_with_exit("Method [scr/inst]: ").lower()
+            if method in ['scr', 'inst']:
+                break
+            print_error("Method must be 'scr' (script) or 'inst' (installer)")
+        
         # Get app name
         while True:
             app_name = self.read_with_exit("Enter the name for the installed app: ")
@@ -232,8 +296,12 @@ class YankedManager:
         print("Installation Summary:")
         print(f"Source URL: {source_url}")
         print(f"Download URL: {raw_url}")
+        print(f"Method: {method}")
         print(f"App name: {app_name}")
-        print(f"Install location: {self.install_dir / app_name}")
+        if method == "scr":
+            print(f"Install location: {self.install_dir / app_name}")
+        else:
+            print(f"Custom installer - location determined by install script")
         print()
         
         confirm = input("Proceed with installation? (y/N): ")
@@ -244,7 +312,7 @@ class YankedManager:
         # Download and install
         try:
             content = self.download_file(raw_url)
-            self.install_app(app_name, source_url, raw_url, content)
+            self.install_app(app_name, source_url, raw_url, content, method)
         except Exception as e:
             print_error(f"Installation failed: {e}")
     
@@ -277,6 +345,7 @@ class YankedManager:
             return
         
         info = records[app_name]
+        method = info.get('method', 'scr')  # Default to scr for older installs
         install_date = datetime.fromisoformat(info['install_date']).strftime('%Y-%m-%d %H:%M:%S')
         
         print()
@@ -284,15 +353,24 @@ class YankedManager:
         print("=" * (15 + len(app_name)))
         print(f"Source URL: {info['source_url']}")
         print(f"Download URL: {info['file_url']}")
-        print(f"Install Path: {info['file_path']}")
+        print(f"Method: {method}")
+        
+        if method == "scr" and 'file_path' in info:
+            print(f"Install Path: {info['file_path']}")
+        else:
+            print(f"Install Method: Custom installer (files not tracked)")
+        
         print(f"Install Date: {install_date}")
         print(f"File Hash: {info['file_hash'][:16]}...")
         
-        # Check if file still exists
-        if Path(info['file_path']).exists():
-            print(f"Status: {Colors.GREEN}✅ Installed{Colors.END}")
+        # Check status based on method
+        if method == "scr" and 'file_path' in info:
+            if Path(info['file_path']).exists():
+                print(f"Status: {Colors.GREEN}✅ Installed{Colors.END}")
+            else:
+                print(f"Status: {Colors.RED}❌ Missing (file not found){Colors.END}")
         else:
-            print(f"Status: {Colors.RED}❌ Missing (file not found){Colors.END}")
+            print(f"Status: {Colors.BLUE}📦 Managed by custom installer{Colors.END}")
     
     def uninstall_app(self, app_name):
         """Uninstall an app"""
@@ -303,27 +381,37 @@ class YankedManager:
             return
         
         info = records[app_name]
-        app_path = Path(info['file_path'])
+        method = info.get('method', 'scr')  # Default to scr for older installs
         
-        # Confirm uninstallation
+        # Show what will be removed based on method
         print(f"This will remove: {Colors.CYAN}{app_name}{Colors.END}")
-        print(f"Location: {app_path}")
+        
+        if method == "scr" and 'file_path' in info:
+            app_path = Path(info['file_path'])
+            print(f"Location: {app_path}")
+        else:
+            print(f"Method: Custom installer (files not tracked by yanked)")
+            print("Note: Only removing from yanked's database.")
+            print("Files installed by the custom installer may need manual cleanup.")
+        
         confirm = input("Are you sure? (y/N): ")
         
         if confirm.lower() not in ['y', 'yes']:
             print_warning("Uninstallation cancelled")
             return
         
-        # Remove file if it exists
-        if app_path.exists():
-            try:
-                app_path.unlink()
-                print_success(f"Removed {app_path}")
-            except OSError as e:
-                print_error(f"Failed to remove file: {e}")
-                return
-        else:
-            print_warning(f"File {app_path} was already missing")
+        # Remove file if it's a tracked script
+        if method == "scr" and 'file_path' in info:
+            app_path = Path(info['file_path'])
+            if app_path.exists():
+                try:
+                    app_path.unlink()
+                    print_success(f"Removed {app_path}")
+                except OSError as e:
+                    print_error(f"Failed to remove file: {e}")
+                    return
+            else:
+                print_warning(f"File {app_path} was already missing")
         
         # Remove from records
         del records[app_name]
@@ -347,25 +435,65 @@ class YankedManager:
             latest_content = self.download_file(info['file_url'])
             latest_hash = self.calculate_hash(latest_content)
             
-            # Compare with current version
-            if latest_hash == info['file_hash']:
-                print_success(f"'{app_name}' is already up to date")
-                return False
+            method = info.get('method', 'scr')  # Default to scr for older installs
             
-            # Update is available
-            print_status(f"Update available for '{app_name}'")
-            print(f"Current hash: {info['file_hash'][:16]}...")
-            print(f"Latest hash:  {latest_hash[:16]}...")
+            # For scripts, check if file changed
+            if method == "scr":
+                if latest_hash == info['file_hash']:
+                    print_success(f"'{app_name}' is already up to date")
+                    return False
+                
+                print_status(f"Update available for '{app_name}'")
+                print(f"Current hash: {info['file_hash'][:16]}...")
+                print(f"Latest hash:  {latest_hash[:16]}...")
+            else:
+                # For custom installers, always run
+                print_status(f"Upgrading '{app_name}' via custom installer...")
             
-            # Install the updated version
-            app_path = Path(info['file_path'])
+            # Reinstall based on method
             
-            # Write updated file
-            with open(app_path, 'wb') as f:
-                f.write(latest_content)
-            
-            # Make executable
-            app_path.chmod(app_path.stat().st_mode | stat.S_IEXEC)
+            if method == "scr":
+                # Script method - update the file
+                app_path = Path(info['file_path'])
+                
+                # Write updated file
+                with open(app_path, 'wb') as f:
+                    f.write(latest_content)
+                
+                # Make executable
+                app_path.chmod(app_path.stat().st_mode | stat.S_IEXEC)
+                
+            elif method == "inst":
+                # Custom installer - replace process with updated installer
+                import tempfile
+                
+                # Create temporary file for installer in our temp directory
+                with tempfile.NamedTemporaryFile(mode='wb', delete=False, dir=self.temp_dir,
+                                               prefix=f"installer_{app_name}_upgrade_") as temp_file:
+                    temp_file.write(latest_content)
+                    temp_path = temp_file.name
+                
+                # Make executable
+                os.chmod(temp_path, os.stat(temp_path).st_mode | stat.S_IEXEC)
+                
+                # Update records BEFORE exec (since we won't return)
+                records[app_name]['file_hash'] = latest_hash
+                records[app_name]['last_update'] = datetime.now().isoformat()
+                self.save_records(records)
+                
+                print_status(f"Running updated installer for {app_name}...")
+                print_status("yanked is transferring control to the installer script")
+                
+                # Replace current process with installer
+                try:
+                    os.execv(temp_path, [temp_path])
+                except Exception as e:
+                    # If exec fails, clean up and report error
+                    try:
+                        os.unlink(temp_path)
+                    except OSError:
+                        pass
+                    raise Exception(f"Failed to execute installer: {e}")
             
             # Update records (preserve install_date, update hash)
             records[app_name]['file_hash'] = latest_hash
@@ -425,7 +553,7 @@ class YankedManager:
             # Get latest version from GitHub
             version_url = "https://raw.githubusercontent.com/codinganovel/yanked/refs/heads/main/version.md"
             req = Request(version_url, headers={
-                'User-Agent': 'yanked/1.0 (GitHub Package Manager)'
+                'User-Agent': 'yanked/2.0 (GitHub Package Manager)'
             })
             
             with urlopen(req, timeout=10) as response:

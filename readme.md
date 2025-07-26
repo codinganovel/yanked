@@ -5,6 +5,7 @@ A universal package manager for GitHub-hosted scripts and tools. Install, track,
 ## What it does
 
 - 📥 Downloads any script from GitHub (raw URLs or repo URLs)
+- 🚀 **Dual installation methods** - Simple scripts or complex custom installers
 - 🏠 Installs to `~/.local/bin/` with your chosen name
 - 📋 **Tracks all installed packages** with install dates and sources
 - 🗑️ **Easy uninstall** - remove packages with one command
@@ -48,8 +49,13 @@ yanked install    # Interactive mode (same as just 'yanked')
 When prompted:
 - **Enter URL:** Paste the GitHub URL (repo or raw file)
 - **Enter file path:** If repo URL, specify which file to install
+- **Method [scr/inst]:** Choose installation method (script or custom installer)
 - **Enter app name:** Choose what to call it
 - **Confirm:** Press `y` to install
+
+#### Installation Methods
+- **`scr`** (Script): For single executable files - yanked copies to `~/.local/bin/` and makes executable
+- **`inst`** (Custom Installer): For complex software - **yanked runs your install script and stays out of the way** ⚠️
 
 ### Manage installed packages
 ```bash
@@ -72,6 +78,7 @@ yanked --version           # Check current yanked version
 ```bash
 yanked
 # Enter URL: https://raw.githubusercontent.com/user/repo/main/script.py
+# Method [scr/inst]: scr
 # Enter app name: my-script
 ```
 
@@ -80,7 +87,17 @@ yanked
 yanked
 # Enter URL: https://github.com/user/awesome-tool
 # Enter file path: src/cli.py
+# Method [scr/inst]: scr
 # Enter app name: awesome
+```
+
+### Installing complex software with custom installer
+```bash
+yanked
+# Enter URL: https://github.com/user/complex-software
+# Enter file path: install.sh
+# Method [scr/inst]: inst
+# Enter app name: complex-software
 ```
 
 ### Package management
@@ -122,7 +139,8 @@ https://github.com/user/repo
 
 - 🔍 **URL validation** - Checks if URLs are accessible before downloading
 - 📦 **Package tracking** - Keeps records of all installed packages
-- 🗑️ **Easy uninstall** - Remove packages with full cleanup
+- 🗑️ **Easy uninstall** - Remove packages with full cleanup (scripts only)
+- ⚠️ **Custom installer freedom** - yanked doesn't control where custom installers put files
 - ⏱️ **Install history** - See when and from where you installed packages
 - 🎨 **Colored output** - Beautiful terminal UI with status indicators
 - ❌ **Smart error handling** - Clear error messages and recovery
@@ -136,14 +154,25 @@ yanked keeps track of everything you install in `~/.local/bin/.yankpacks`:
 ```json
 {
   "my-tool": {
+    "method": "scr",
     "source_url": "https://github.com/user/repo",
     "file_url": "https://raw.githubusercontent.com/.../tool.py",
     "install_date": "2025-06-26T10:30:00",
     "file_path": "/home/user/.local/bin/my-tool",
     "file_hash": "sha256:abc123..."
+  },
+  "complex-software": {
+    "method": "inst",
+    "source_url": "https://github.com/user/complex-software",
+    "file_url": "https://raw.githubusercontent.com/.../install.sh",
+    "install_date": "2025-07-26T14:20:00",
+    "file_hash": "sha256:def456..."
+    // Note: No file_path - custom installer manages its own files
   }
 }
 ```
+
+⚠️ **Important**: For custom installers (`inst` method), yanked only tracks basic install info. The installer script handles everything - yanked doesn't know or control where files are installed, what version is installed, or how to uninstall.
 
 ## Requirements
 
